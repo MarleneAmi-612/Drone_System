@@ -1,0 +1,8 @@
+
+{
+  "name": "AeroGuard Durango - Drone Surveillance System",
+  "description": "Professional drone monitoring and control dashboard specialized for Durango City, featuring mission management, real-time tracking, and automated charging station routing, styled in a futuristic sepia-toned aesthetic.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

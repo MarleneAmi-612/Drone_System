@@ -1,0 +1,41 @@
+
+export enum DroneStatus {
+  BASE = 'Base',
+  DEPLOYMENT = 'Deployment',
+  WORKING = 'Working',
+  RETURNING = 'Returning',
+  ARRIVED = 'Arrived',
+  INCIDENT = 'Incident',
+  CHARGING = 'Charging'
+}
+
+export interface Position {
+  x: number; // 0-1000 scale for simulated map
+  y: number;
+}
+
+export interface ChargingStation {
+  id: string;
+  name: string;
+  pos: Position;
+}
+
+export interface Drone {
+  id: string;
+  model: string;
+  status: DroneStatus;
+  battery: number; // 0-100
+  speed: number; // km/h
+  altitude: number; // meters
+  position: Position;
+  destination: Position | null;
+  mission: string;
+  client: string;
+  incidentType?: string;
+}
+
+export interface MapDistrict {
+  id: string;
+  name: string;
+  points: string;
+}
