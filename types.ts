@@ -32,6 +32,7 @@ export interface Drone {
   mission: string;
   client: string;
   incidentType?: string;
+  waypointIndex?: number; // Current waypoint index in calculated path
 }
 
 export interface MapDistrict {

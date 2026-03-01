@@ -8,6 +8,7 @@ import DetailPanel from './components/DetailPanel';
 import AddDroneModal from './components/AddDroneModal';
 import IncidentAlert from './components/IncidentAlert';
 import DeliveryAlert from './components/DeliveryAlert';
+import { findPathAStar, createGrid, simplifyPath, type Point } from './utils/pathfinding';
 
 const INITIAL_DRONES: Drone[] = [
   {
@@ -21,6 +22,7 @@ const INITIAL_DRONES: Drone[] = [
     destination: { x: 750, y: 300 },
     mission: 'Traffic Surveillance',
     client: 'Durango Public Safety',
+    waypointIndex: 0,
   },
   {
     id: 'DG-002',
@@ -33,6 +35,7 @@ const INITIAL_DRONES: Drone[] = [
     destination: null,
     mission: 'Standby',
     client: 'Logistics MX',
+    waypointIndex: 0,
   },
   {
     id: 'DG-003',
@@ -46,6 +49,7 @@ const INITIAL_DRONES: Drone[] = [
     mission: 'Perimeter Check',
     client: 'Private Security Inc.',
     incidentType: 'Critical Battery / Signal Loss',
+    waypointIndex: 0,
   }
 ];
 
@@ -57,8 +61,67 @@ const App: React.FC = () => {
   const [droneToEdit, setDroneToEdit] = useState<Drone | null>(null);
   const [deliveryAlerts, setDeliveryAlerts] = useState<Drone[]>([]);
   const [deliveredDrones, setDeliveredDrones] = useState<Set<string>>(new Set());
+  const [dronePaths, setDronePaths] = useState<Record<string, Position[]>>({});
+  
+  // Use ref to store paths for synchronous access during simulation
+  const dronePathsRef = useRef<Record<string, Position[]>>({});
 
   const selectedDrone = drones.find(d => d.id === selectedDroneId) || null;
+
+  // Calculate A* paths for drones with destinations
+  useEffect(() => {
+    const GRID_RESOLUTION = 20;
+    const gridWidth = Math.ceil(1000 / GRID_RESOLUTION);
+    const gridHeight = Math.ceil(1000 / GRID_RESOLUTION);
+
+    // Mark charging stations as obstacles
+    const obstacles: Point[] = [];
+    for (const station of CHARGING_STATIONS) {
+      for (let i = -5; i <= 5; i++) {
+        for (let j = -5; j <= 5; j++) {
+          const x = Math.floor((station.pos.x + i) / GRID_RESOLUTION);
+          const y = Math.floor((station.pos.y + j) / GRID_RESOLUTION);
+          if (x >= 0 && x < gridWidth && y >= 0 && y < gridHeight) {
+            obstacles.push({ x, y });
+          }
+        }
+      }
+    }
+
+    const grid = createGrid(gridWidth, gridHeight, obstacles);
+    const newPaths: Record<string, Position[]> = {};
+    const newIndices: Record<string, number> = {};
+
+    for (const drone of drones) {
+      if (drone.destination) {
+        const startGrid: Point = {
+          x: Math.floor(drone.position.x / GRID_RESOLUTION),
+          y: Math.floor(drone.position.y / GRID_RESOLUTION),
+        };
+        const goalGrid: Point = {
+          x: Math.floor(drone.destination.x / GRID_RESOLUTION),
+          y: Math.floor(drone.destination.y / GRID_RESOLUTION),
+        };
+
+        const pathGrid = findPathAStar(startGrid, goalGrid, grid, false);
+        if (pathGrid.length > 0) {
+          const pathSimulation = pathGrid.map(p => ({
+            x: p.x * GRID_RESOLUTION + GRID_RESOLUTION / 2,
+            y: p.y * GRID_RESOLUTION + GRID_RESOLUTION / 2,
+          }));
+          const simplified = simplifyPath(pathSimulation, grid);
+          newPaths[drone.id] = simplified;
+          newIndices[drone.id] = 0;
+        } else {
+          // No path found, use direct line
+          newPaths[drone.id] = [drone.position, drone.destination];
+          newIndices[drone.id] = 0;
+        }
+      }
+    }
+    setDronePaths(newPaths);
+    dronePathsRef.current = newPaths;
+  }, [drones]);
 
   // Simulation loop
   useEffect(() => {
@@ -78,19 +141,37 @@ const App: React.FC = () => {
 
         // Logic for movement towards destination
         if (drone.destination) {
-          const dx = drone.destination.x - drone.position.x;
-          const dy = drone.destination.y - drone.position.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
-          if (dist < 5) {
-            // Arrived
-            if (drone.status === DroneStatus.RETURNING) {
-              return { ...drone, status: DroneStatus.BASE, destination: null, speed: 0, altitude: 0, position: drone.destination };
-            }
-            return { ...drone, status: DroneStatus.ARRIVED, destination: null, speed: 0, altitude: 0, position: drone.destination };
+          // Get the current waypoint from the calculated path (using ref for synchronous access)
+          const path = dronePathsRef.current[drone.id];
+          const currentWaypointIndex = drone.waypointIndex ?? 0;
+          
+          let targetWaypoint: Position;
+          if (path && currentWaypointIndex < path.length) {
+            targetWaypoint = path[currentWaypointIndex];
+          } else {
+            // Fallback to destination if no path
+            targetWaypoint = drone.destination;
           }
 
-          // Move
+          const dx = targetWaypoint.x - drone.position.x;
+          const dy = targetWaypoint.y - drone.position.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          // Check if reached current waypoint
+          if (dist < 5) {
+            if (path && currentWaypointIndex < path.length - 1) {
+              // Move to next waypoint
+              return { ...drone, waypointIndex: currentWaypointIndex + 1 };
+            } else {
+              // Arrived at destination
+              if (drone.status === DroneStatus.RETURNING) {
+                return { ...drone, status: DroneStatus.BASE, destination: null, speed: 0, altitude: 0, position: drone.destination, waypointIndex: 0 };
+              }
+              return { ...drone, status: DroneStatus.ARRIVED, destination: null, speed: 0, altitude: 0, position: drone.destination, waypointIndex: 0 };
+            }
+          }
+
+          // Move towards current waypoint
           const moveSpeed = 2.5;
           const nx = drone.position.x + (dx / dist) * moveSpeed;
           const ny = drone.position.y + (dy / dist) * moveSpeed;
@@ -160,7 +241,8 @@ const App: React.FC = () => {
           ...d,
           status: DroneStatus.RETURNING,
           destination: { x: 500, y: 500 }, // Return to base (Plaza de Armas)
-          mission: 'Returning to Base'
+          mission: 'Returning to Base',
+          waypointIndex: 0
         };
       }
       return d;
@@ -185,7 +267,8 @@ const App: React.FC = () => {
           ...d,
           status: DroneStatus.DEPLOYMENT,
           destination: nearest.pos,
-          mission: `Charging at ${nearest.name}`
+          mission: `Charging at ${nearest.name}`,
+          waypointIndex: 0
         };
       }
       return d;
@@ -209,6 +292,7 @@ const App: React.FC = () => {
           onDroneClick={setSelectedDroneId} 
           selectedDrone={selectedDrone}
           deliveredDrones={deliveredDrones}
+          dronePaths={dronePaths}
         />
         
         {/* Global Stats Overlay */}

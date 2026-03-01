@@ -35,6 +35,7 @@ const AddDroneModal: React.FC<AddDroneModalProps> = ({ onClose, onAdd, drone }) 
       destination: { x: destX, y: destY },
       mission: mission || 'Standard Patrol',
       client: drone ? drone.client : 'System Guest',
+      waypointIndex: 0,
       ...(drone?.incidentType && { incidentType: drone.incidentType }),
     };
     onAdd(newDrone);
