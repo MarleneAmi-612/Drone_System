@@ -276,7 +276,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className={`flex h-screen w-screen overflow-hidden ${COLORS.bg} selection:bg-[#d4a373] selection:text-black`}>
+    <div className={`flex h-screen w-screen min-h-0 min-w-0 overflow-hidden ${COLORS.bg} selection:bg-[#d4a373] selection:text-black`}>
       {/* Sidebar Control Panel */}
       <ControlPanel 
         drones={drones} 
@@ -286,7 +286,7 @@ const App: React.FC = () => {
       />
 
       {/* Main Map View */}
-      <div className="flex-1 relative border-l border-[#5c4033]">
+      <div className="flex-1 relative border-l border-[#5c4033] min-h-0 min-w-0 h-full">
         <MapView 
           drones={drones} 
           onDroneClick={setSelectedDroneId} 

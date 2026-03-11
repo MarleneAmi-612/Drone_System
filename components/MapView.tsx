@@ -1,10 +1,9 @@
-'use client';
+"use client";
 
-/// <reference types="vite/client" />
-/// <reference path="../types/react-map-gl.d.ts" />
 import React, { useState, useEffect, useRef } from 'react';
-import Map, { Marker, Source, Layer, NavigationControl, ScaleControl, Popup } from 'react-map-gl/mapbox';
-import 'mapbox-gl/dist/mapbox-gl.css';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, ZoomControl, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { Drone, DroneStatus, Position } from '../types';
 import { COLORS, CHARGING_STATIONS } from '../constants';
 import BatteryIndicator from './BatteryIndicator';
@@ -20,7 +19,6 @@ interface MapViewProps {
 
 // Real Durango, Mexico coordinates
 const DURANGO_CENTER = { latitude: 24.0277, longitude: -104.6532 };
-const MAPBOX_TOKEN = (import.meta as any).env?.VITE_MAPBOX_TOKEN;
 
 const MapView: React.FC<MapViewProps> = ({ 
   drones, 
@@ -31,6 +29,40 @@ const MapView: React.FC<MapViewProps> = ({
 }) => {
   const [hoveredDroneId, setHoveredDroneId] = useState<string | null>(null);
   const mapRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+
+  useEffect(() => {
+  if (!mapRef.current) return;
+
+  const map = mapRef.current;
+
+  //se supone que el mapa debe estar completo
+  const interval = setTimeout(() => {
+    map.invalidateSize();
+  }, 500);
+
+  return () => clearTimeout(interval);
+}, []);
+
+useEffect(() => {
+  if (!mapRef.current) return;
+
+  const map = mapRef.current;
+
+  const fixSize = () => {
+    requestAnimationFrame(() => {
+      map.invalidateSize();
+    });
+  };
+
+  // ejecutar varias veces para asegurar layout final
+  fixSize();
+  setTimeout(fixSize, 100);
+  setTimeout(fixSize, 300);
+  setTimeout(fixSize, 600);
+
+}, []);
 
   // Animated display positions: we smoothly interpolate from last displayed
   // position to the incoming `drones` position to create smooth movement.
@@ -39,6 +71,28 @@ const MapView: React.FC<MapViewProps> = ({
   const [, setTick] = useState(0);
 
   const hoveredDrone = drones.find(d => d.id === hoveredDroneId) || null;
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !containerRef.current) return;
+
+    const map = mapRef.current;
+    const mapContainer = containerRef.current;
+    const onResize = () => map.invalidateSize();
+
+    const observer = new ResizeObserver(() => map.invalidateSize());
+    observer.observe(mapContainer);
+
+    // Force initial size correction after mount (as leaflets can initial render with wrong dimensions in flex layouts)
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 300);
+    window.addEventListener('resize', onResize);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', onResize);
+    };
+  }, [mapReady]);
 
   // Convert simulation coordinates (0-1000) to real lat/lng
   const positionToLatLng = (pos: any) => {
@@ -113,57 +167,77 @@ const MapView: React.FC<MapViewProps> = ({
       };
     }, [drones]);
 
-  // Layer styling for drone paths
-  const pathLayer = {
-    id: 'drone-paths',
-    type: 'line' as const,
-    paint: {
-      'line-color': '#d4a373',
-      'line-width': 2,
-      'line-dasharray': [5, 5],
-      'line-opacity': 0.5,
+  // Leaflet style options for drone paths
+  const pathOptions = {
+    color: '#d4a373',
+    weight: 2,
+    dashArray: '5,5',
+    opacity: 0.5,
+  } as L.PathOptions;
+
+  // small helper to add scale control (react-leaflet doesn't export it directly in all versions)
+  function ScaleControl() {
+    const map = useMap();
+    useEffect(() => {
+      const ctrl = L.control.scale({ position: 'bottomright' }).addTo(map);
+      return () => ctrl.remove();
+    }, [map]);
+    return null;
+  }
+
+  useEffect(() => {
+    if (mapRef.current) {
+      mapRef.current.invalidateSize();
     }
-  };
-
+  }, [drones]);
+//mapa hasta al fondo
   return (
-    <div className="w-full h-full relative overflow-hidden">
-      <Map
-        ref={mapRef}
-        initialViewState={{
-          latitude: DURANGO_CENTER.latitude,
-          longitude: DURANGO_CENTER.longitude,
-          zoom: 13,
-        }}
+    <div ref={containerRef} className="w-full h-full min-h-0 min-w-0 relative overflow-hidden z-0"> 
+      <MapContainer
+      key={mapReady ? "map-ready" : "map-init"}
+        className="absolute inset-0"
+        center={[DURANGO_CENTER.latitude, DURANGO_CENTER.longitude]}
+        zoom={13}
         style={{ width: '100%', height: '100%' }}
-        mapStyle="mapbox://styles/mapbox/dark-v11"
-        mapboxAccessToken={MAPBOX_TOKEN}
-        attributionControl={false}
+        //aqui estaba el maldito problema del mapa incompleto
+        whenReady={(map) => {
+  setTimeout(() => {
+    map.target.invalidateSize();
+  }, 100);
+}}
+        zoomControl={false}
       >
-        {/* Navigation Controls */}
-        <NavigationControl position="top-right" />
-        <ScaleControl position="bottom-right" />
+        <ZoomControl position="topright" />
+        <ScaleControl />
+        <TileLayer
+          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>'
+        />
 
-        {/* Drone Paths Layer */}
-        <Source id="drone-paths" type="geojson" data={dronePathsGeoJSON}>
-          <Layer {...pathLayer} />
-        </Source>
+        {/* Drone Paths */}
+        {drones
+          .filter(d => d.destination)
+          .map((drone) => {
+            const pathPoints = dronePaths[drone.id] || [drone.position, drone.destination!];
+            const latLngs = pathPoints.map((p: any) => {
+              const latLng = positionToLatLng(p);
+              return [latLng.latitude, latLng.longitude] as [number, number];
+            });
+            return <Polyline key={`path-${drone.id}`} positions={latLngs} pathOptions={pathOptions} />;
+        })}
 
-        {/* Charging Stations Markers */}
+        {/* Charging Stations */}
         {CHARGING_STATIONS.map((station) => {
           const stationLatLng = positionToLatLng(station.pos);
+          const html = `<div class="w-8 h-8 bg-[#d4a373] rounded-full border-2 border-[#faedcd] flex items-center justify-center"><div class=\"w-2 h-2 bg-[#2b1a10] rounded-full\"></div></div>`;
+          const icon = L.divIcon({ html, className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
           return (
             <Marker
               key={station.id}
-              latitude={stationLatLng.latitude}
-              longitude={stationLatLng.longitude}
-              anchor="center"
-              onMouseEnter={(e:any) => { e?.originalEvent?.stopPropagation(); e?.originalEvent?.preventDefault?.(); }}
-              onMouseLeave={(e:any) => { e?.originalEvent?.stopPropagation(); }}
+              position={[stationLatLng.latitude, stationLatLng.longitude]}
+              icon={icon}
             >
-              <div className="w-8 h-8 bg-[#d4a373] rounded-full border-2 border-[#faedcd] flex items-center justify-center cursor-pointer hover:scale-110 transition-transform"
-                   title={station.name}>
-                <div className="w-2 h-2 bg-[#2b1a10] rounded-full"></div>
-              </div>
+              <Tooltip>{station.name}</Tooltip>
             </Marker>
           );
         })}
@@ -175,113 +249,88 @@ const MapView: React.FC<MapViewProps> = ({
           const color = isDelivered ? '#7cb342' : (drone.status === DroneStatus.INCIDENT ? '#9c4a1a' : '#faedcd');
           const droneLatLng = displayPosRef.current[drone.id] ?? positionToLatLng(drone.position);
 
+          const html = `
+            <div class="cursor-pointer transition-all duration-300 ${isSelected ? 'scale-125' : 'scale-100'}" style='filter: drop-shadow(0 0 ${isSelected ? 12 : 4}px ${color}aa)'>
+              <div class="relative w-8 h-8 flex items-center justify-center">
+                ${isSelected && !isDelivered ? `<div class=\"absolute inset-0 rounded-full border-2\" style=\"border-color: ${color}; animation: pulse 1.5s ease-out infinite;\"></div>` : ''}
+                ${isDelivered ? `<div class=\"absolute inset-0 rounded-full border-2\" style=\"border-color: ${color}; animation: ping 1s cubic-bezier(0,0,0.2,1) infinite;\"></div>` : ''}
+                <div class="w-5 h-5 rounded-full border-2 flex items-center justify-center" style="background-color: ${color}22; border-color: ${color};">
+                  <div class="w-2 h-2 rounded-full ${drone.status !== DroneStatus.BASE ? 'animate-spin' : ''}" style="background-color: ${color}; animation-duration: 0.5s;"></div>
+                </div>
+              </div>
+            </div>
+          `;
+
+          const icon = L.divIcon({ html, className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
+
           return (
+            
             <Marker
               key={drone.id}
-              latitude={droneLatLng.latitude}
-              longitude={droneLatLng.longitude}
-              anchor="center"
-              onClick={(e) => {
-                e.originalEvent.stopPropagation();
-                onDroneClick(drone.id);
-              }}
-            >
-              <div
-                className={`cursor-pointer transition-all duration-300 ${isSelected ? 'scale-125' : 'scale-100'}`}
-                style={{
-                  filter: `drop-shadow(0 0 ${isSelected ? 12 : 4}px ${color}aa)`
-                }}
-                onMouseEnter={() => setHoveredDroneId(drone.id)}
-                onMouseLeave={() => setHoveredDroneId(null)}
-              >
-                {/* Drone Container */}
-                <div className="relative w-8 h-8 flex items-center justify-center">
-                  {/* Pulse effect if selected */}
-                  {isSelected && !isDelivered && (
-                    <div
-                      className="absolute inset-0 rounded-full border-2"
-                      style={{
-                        borderColor: color,
-                        animation: 'pulse 1.5s ease-out infinite',
-                      }}
-                    />
-                  )}
-
-                  {/* Delivery glow */}
-                  {isDelivered && (
-                    <div
-                      className="absolute inset-0 rounded-full border-2"
-                      style={{
-                        borderColor: color,
-                        animation: 'ping 1s cubic-bezier(0, 0, 0.2, 1) infinite',
-                      }}
-                    />
-                  )}
-
-                  {/* Main drone icon */}
-                  <div
-                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                      isDelivered ? 'animate-pulse' : ''
-                    }`}
-                    style={{
-                      backgroundColor: color + '22',
-                      borderColor: color,
-                    }}
-                  >
-                    <div
-                      className={`w-2 h-2 rounded-full ${
-                        drone.status !== DroneStatus.BASE ? 'animate-spin' : ''
-                      }`}
-                      style={{
-                        backgroundColor: color,
-                        animationDuration: '0.5s',
-                      }}
-                    />
-                  </div>
+              position={[droneLatLng.latitude, droneLatLng.longitude]}
+              icon={icon}
+              eventHandlers={{
+                 click: () => {
+  console.log("DRONE CLICK", drone.id)
+  onDroneClick(drone.id)
+},
+                mouseover: () => setHoveredDroneId(drone.id),
+                mouseout: () => setHoveredDroneId(null),
+              }} 
+            > 
+              <Tooltip direction="top" offset={[0, -10]} interactive={false}>
+                <div className="bg-[#1a0f08] text-[#d4a373] text-xs py-2 px-3 rounded border border-[#5c4033] shadow-lg">
+                  <div className="font-bold text-[#fefae0] mb-1 text-center">{drone.id}</div>
+                  <div className="text-[9px] mb-1 text-center">Model: {drone.model}</div>
+                  <div className="flex justify-center"><BatteryIndicator battery={drone.battery} size="small" /></div>
                 </div>
-
-                {/* Tooltip when hovering */}
-                {hoveredDroneId === drone.id && (
-                  <div className="absolute -top-24 left-1/2 transform -translate-x-1/2 bg-[#1a0f08] text-[#d4a373] text-xs py-3 px-3 rounded border border-[#5c4033] z-50 shadow-lg min-w-max">
-                    <div className="font-bold text-[#fefae0] mb-2 text-center">{drone.id}</div>
-                    <div className="text-[9px] mb-2 text-center">Model: {drone.model}</div>
-                    <div className="flex justify-center">
-                      <BatteryIndicator battery={drone.battery} size="small" />
-                    </div>
-                  </div>
-                )}
-              </div>
+              </Tooltip>
             </Marker>
           );
         })}
 
-        {/* Info Overlay */}
-        <div className="absolute bottom-6 left-6 p-4 rounded bg-black bg-opacity-60 border border-[#5c4033] backdrop-blur-md z-40">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-3 h-3 rounded-full bg-[#d4a373] animate-pulse"></div>
-            <span className="text-xs uppercase tracking-tighter text-[#d4a373] opacity-80">
-              Durango Live Map
-            </span>
-          </div>
-          <div className="text-[10px] text-[#fefae0] opacity-60">
-            {DURANGO_CENTER.latitude.toFixed(4)}° N, {Math.abs(DURANGO_CENTER.longitude).toFixed(4)}° W
-          </div>
-          <div className="text-[9px] text-[#d4a373] opacity-40 mt-1">
-            {drones.length} drones tracked
+        {/* Info Overlay (kept as absolute overlay) */}
+        <div className="leaflet-bottom leaflet-left" style={{ position: 'absolute', left: 16, bottom: 24, zIndex: 1000, pointerEvents: "none" }}>
+          <div className="p-4 rounded bg-black bg-opacity-60 border border-[#5c4033] backdrop-blur-md z-40">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-3 h-3 rounded-full bg-[#d4a373] animate-pulse"></div>
+              <span className="text-xs uppercase tracking-tighter text-[#d4a373] opacity-80">Durango Live Map</span>
+            </div>
+            <div className="text-[10px] text-[#fefae0] opacity-60">{DURANGO_CENTER.latitude.toFixed(4)}° N, {Math.abs(DURANGO_CENTER.longitude).toFixed(4)}° W</div>
+            <div className="text-[9px] text-[#d4a373] opacity-40 mt-1">{drones.length} drones tracked</div>
           </div>
         </div>
-      </Map>
+      </MapContainer>
 
       {/* CSS for animations */}
       <style>{`
         @keyframes pulse {
-          0%, 100% {
-            box-shadow: 0 0 0 0 rgba(212, 163, 115, 0.7);
-          }
-          50% {
-            box-shadow: 0 0 0 10px rgba(212, 163, 115, 0);
-          }
+          0%, 100% { box-shadow: 0 0 0 0 rgba(212,163,115,0.7); }
+          50% { box-shadow: 0 0 0 10px rgba(212,163,115,0); }
         }
+        @keyframes ping {
+          0% { transform: scale(1); opacity: 1; }
+          75% { transform: scale(1.6); opacity: 0; }
+          100% { transform: scale(1.6); opacity: 0; }
+        }
+      `}</style>
+
+      <style>{`
+      @keyframes pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(212,163,115,0.7); }
+        50% { box-shadow: 0 0 0 10px rgba(212,163,115,0); }
+      }
+
+      @keyframes ping {
+        0% { transform: scale(1); opacity: 1; }
+        75% { transform: scale(1.6); opacity: 0; }
+        100% { transform: scale(1.6); opacity: 0; }
+      }
+
+      
+
+      
+      }
       `}</style>
     </div>
   );

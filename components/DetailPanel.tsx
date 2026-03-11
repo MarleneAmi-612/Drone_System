@@ -15,7 +15,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({ drone, onClose, onCancel, onC
   const isIncident = drone.status === DroneStatus.INCIDENT;
 
   return (
-    <div className={`absolute top-4 right-4 bottom-4 w-96 ${COLORS.panel} border border-[#5c4033] shadow-2xl z-20 flex flex-col backdrop-blur-xl bg-opacity-95 rounded-lg overflow-hidden animate-in slide-in-from-right duration-300`}>
+    <div className={`absolute top-4 right-4 bottom-4 w-96 ${COLORS.panel} border border-[#5c4033] shadow-2xl z-[9999] flex flex-col backdrop-blur-xl bg-opacity-95 rounded-lg overflow-hidden animate-in slide-in-from-right duration-300`}>
       {/* Header */}
       <div className="p-6 border-b border-[#5c4033] flex justify-between items-start">
         <div className="flex items-start gap-3 flex-1">
