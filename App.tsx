@@ -1,14 +1,17 @@
-
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Drone, DroneStatus, Position } from './types';
-import { COLORS, CHARGING_STATIONS } from './constants';
+import { CHARGING_STATIONS } from './constants';
 import MapView from './components/MapView';
 import ControlPanel from './components/ControlPanel';
 import DetailPanel from './components/DetailPanel';
-import AddDroneModal from './components/AddDroneModal';
+import AddDroneModal, { QueuedTask } from './components/AddDroneModal';
+import RegisterDroneModal from './components/RegisterDroneModal';
 import IncidentAlert from './components/IncidentAlert';
 import DeliveryAlert from './components/DeliveryAlert';
 import { findPathAStar, createGrid, simplifyPath, type Point } from './utils/pathfinding';
+
+import { ThemeProvider, useTheme } from './components/ThemeContext';
+import ThemeToggle from './components/ThemeToggle';
 
 const INITIAL_DRONES: Drone[] = [
   {
@@ -20,8 +23,8 @@ const INITIAL_DRONES: Drone[] = [
     altitude: 120,
     position: { x: 480, y: 520 },
     destination: { x: 750, y: 300 },
-    mission: 'Traffic Surveillance',
-    client: 'Durango Public Safety',
+    mission: 'Vigilancia de Trafico',
+    client: 'Seguridad Publica Durango',
     waypointIndex: 0,
   },
   {
@@ -36,45 +39,37 @@ const INITIAL_DRONES: Drone[] = [
     mission: 'Standby',
     client: 'Logistics MX',
     waypointIndex: 0,
-  },
-  {
-    id: 'DG-003',
-    model: 'Raven-9',
-    status: DroneStatus.INCIDENT,
-    battery: 5,
-    speed: 12,
-    altitude: 15,
-    position: { x: 250, y: 700 },
-    destination: null,
-    mission: 'Perimeter Check',
-    client: 'Private Security Inc.',
-    incidentType: 'Critical Battery / Signal Loss',
-    waypointIndex: 0,
   }
 ];
 
-const App: React.FC = () => {
+const MainAppContent: React.FC = () => {
+  const { theme } = useTheme();
+  const isCafe = theme === 'cafe';
+
   const [drones, setDrones] = useState<Drone[]>(INITIAL_DRONES);
+  const [taskQueue, setTaskQueue] = useState<QueuedTask[]>([]);
+  const [taskToAssign, setTaskToAssign] = useState<QueuedTask | null>(null);
   const [selectedDroneId, setSelectedDroneId] = useState<string | null>(null);
+  
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
+  
   const [activeIncident, setActiveIncident] = useState<Drone | null>(null);
   const [droneToEdit, setDroneToEdit] = useState<Drone | null>(null);
   const [deliveryAlerts, setDeliveryAlerts] = useState<Drone[]>([]);
   const [deliveredDrones, setDeliveredDrones] = useState<Set<string>>(new Set());
   const [dronePaths, setDronePaths] = useState<Record<string, Position[]>>({});
+  const [dismissedIncidents, setDismissedIncidents] = useState<Set<string>>(new Set());
   
-  // Use ref to store paths for synchronous access during simulation
   const dronePathsRef = useRef<Record<string, Position[]>>({});
-
   const selectedDrone = drones.find(d => d.id === selectedDroneId) || null;
+  const assignableDrones = drones.filter(d => d.status !== DroneStatus.INCIDENT && d.status !== DroneStatus.CHARGING);
 
-  // Calculate A* paths for drones with destinations
   useEffect(() => {
     const GRID_RESOLUTION = 20;
     const gridWidth = Math.ceil(1000 / GRID_RESOLUTION);
     const gridHeight = Math.ceil(1000 / GRID_RESOLUTION);
 
-    // Mark charging stations as obstacles
     const obstacles: Point[] = [];
     for (const station of CHARGING_STATIONS) {
       for (let i = -5; i <= 5; i++) {
@@ -90,7 +85,6 @@ const App: React.FC = () => {
 
     const grid = createGrid(gridWidth, gridHeight, obstacles);
     const newPaths: Record<string, Position[]> = {};
-    const newIndices: Record<string, number> = {};
 
     for (const drone of drones) {
       if (drone.destination) {
@@ -109,13 +103,9 @@ const App: React.FC = () => {
             x: p.x * GRID_RESOLUTION + GRID_RESOLUTION / 2,
             y: p.y * GRID_RESOLUTION + GRID_RESOLUTION / 2,
           }));
-          const simplified = simplifyPath(pathSimulation, grid);
-          newPaths[drone.id] = simplified;
-          newIndices[drone.id] = 0;
+          newPaths[drone.id] = simplifyPath(pathSimulation, grid);
         } else {
-          // No path found, use direct line
           newPaths[drone.id] = [drone.position, drone.destination];
-          newIndices[drone.id] = 0;
         }
       }
     }
@@ -123,14 +113,19 @@ const App: React.FC = () => {
     dronePathsRef.current = newPaths;
   }, [drones]);
 
-  // Simulation loop
   useEffect(() => {
     const interval = setInterval(() => {
       setDrones(prevDrones => prevDrones.map(drone => {
+        
         if (drone.status === DroneStatus.BASE || drone.status === DroneStatus.CHARGING) {
           if (drone.status === DroneStatus.CHARGING) {
-             const newBattery = Math.min(100, drone.battery + 0.5);
-             return { ...drone, battery: newBattery, status: newBattery === 100 ? DroneStatus.BASE : DroneStatus.CHARGING };
+             const newBattery = Math.min(100, drone.battery + 1.5);
+             return { 
+               ...drone, 
+               battery: newBattery, 
+               status: newBattery >= 100 ? DroneStatus.BASE : DroneStatus.CHARGING,
+               mission: newBattery >= 100 ? 'Standby' : drone.mission 
+             };
           }
           return drone;
         }
@@ -139,58 +134,50 @@ const App: React.FC = () => {
            return { ...drone, battery: Math.max(0, drone.battery - 0.05) };
         }
 
-        // Logic for movement towards destination
         if (drone.destination) {
-          // Get the current waypoint from the calculated path (using ref for synchronous access)
           const path = dronePathsRef.current[drone.id];
           const currentWaypointIndex = drone.waypointIndex ?? 0;
-          
-          let targetWaypoint: Position;
-          if (path && currentWaypointIndex < path.length) {
-            targetWaypoint = path[currentWaypointIndex];
-          } else {
-            // Fallback to destination if no path
-            targetWaypoint = drone.destination;
-          }
+          let targetWaypoint: Position = path && currentWaypointIndex < path.length ? path[currentWaypointIndex] : drone.destination;
 
           const dx = targetWaypoint.x - drone.position.x;
           const dy = targetWaypoint.y - drone.position.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
-          // Check if reached current waypoint
           if (dist < 5) {
             if (path && currentWaypointIndex < path.length - 1) {
-              // Move to next waypoint
               return { ...drone, waypointIndex: currentWaypointIndex + 1 };
             } else {
-              // Arrived at destination
-              if (drone.status === DroneStatus.RETURNING) {
-                return { ...drone, status: DroneStatus.BASE, destination: null, speed: 0, altitude: 0, position: drone.destination, waypointIndex: 0 };
+              if (drone.mission.includes('Cargando en')) {
+                return { ...drone, status: DroneStatus.CHARGING, destination: null, speed: 0, altitude: 0, position: drone.destination, waypointIndex: 0 };
+              } else if (drone.status === DroneStatus.RETURNING) {
+                return { ...drone, status: DroneStatus.BASE, destination: null, speed: 0, altitude: 0, position: drone.destination, waypointIndex: 0, mission: 'Standby' };
               }
               return { ...drone, status: DroneStatus.ARRIVED, destination: null, speed: 0, altitude: 0, position: drone.destination, waypointIndex: 0 };
             }
           }
 
-          // Move towards current waypoint
           const moveSpeed = 2.5;
           const nx = drone.position.x + (dx / dist) * moveSpeed;
           const ny = drone.position.y + (dy / dist) * moveSpeed;
           const newBattery = Math.max(0, drone.battery - 0.05);
           
-          // Fix: Explicitly type nextStatus as DroneStatus to prevent TypeScript from narrowing its type 
-          // based on previous if checks, which would otherwise exclude DroneStatus.INCIDENT.
           let nextStatus: DroneStatus = drone.status;
-          if (newBattery < 10) nextStatus = DroneStatus.INCIDENT;
+          const isEmergencyReturn = drone.mission.includes('Cargando en') || drone.status === DroneStatus.RETURNING;
+          
+          if (newBattery <= 0) {
+             nextStatus = DroneStatus.INCIDENT;
+          } else if (newBattery <= 40 && !isEmergencyReturn) {
+             nextStatus = DroneStatus.INCIDENT;
+          }
 
           return {
             ...drone,
             position: { x: nx, y: ny },
             battery: newBattery,
             status: nextStatus,
-            incidentType: newBattery < 10 ? 'Critical Battery' : drone.incidentType
+            incidentType: newBattery <= 40 && !isEmergencyReturn ? 'Bateria al 40% - Requiere Recarga' : drone.incidentType
           };
         }
-
         return drone;
       }));
     }, 100);
@@ -198,17 +185,15 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Monitor incidents
   useEffect(() => {
-    const incident = drones.find(d => d.status === DroneStatus.INCIDENT);
+    const incident = drones.find(d => d.status === DroneStatus.INCIDENT && !dismissedIncidents.has(d.id));
     if (incident && (!activeIncident || activeIncident.id !== incident.id)) {
       setActiveIncident(incident);
     } else if (!incident) {
       setActiveIncident(null);
     }
-  }, [drones, activeIncident]);
+  }, [drones, activeIncident, dismissedIncidents]);
 
-  // Monitor deliveries
   useEffect(() => {
     drones.forEach(drone => {
       if (drone.status === DroneStatus.ARRIVED && !deliveredDrones.has(drone.id)) {
@@ -222,16 +207,36 @@ const App: React.FC = () => {
     setDeliveryAlerts(prev => prev.filter(d => d.id !== droneId));
   };
 
-  const handleAddDrone = (newDrone: Drone) => {
-    if (droneToEdit) {
-      // Update existing drone
-      setDrones(prev => prev.map(d => d.id === newDrone.id ? newDrone : d));
-      setDroneToEdit(null);
+  const handleRegisterNewDrone = (newDrone: Drone) => {
+    setDrones(prev => [...prev, newDrone]);
+    setIsRegisterModalOpen(false);
+  };
+
+  const handleAddDrone = (newDrone: Drone, taskIdToRemove?: string) => {
+    const exists = drones.some(d => d.id === newDrone.id);
+    if (exists) {
+      setDrones(prev => prev.map(d => d.id === newDrone.id ? { ...d, ...newDrone } : d));
     } else {
-      // Add new drone
       setDrones(prev => [...prev, newDrone]);
     }
+    
+    if (taskIdToRemove) {
+      setTaskQueue(prev => prev.filter(t => t.id !== taskIdToRemove));
+    }
+    
     setIsAddModalOpen(false);
+    setDroneToEdit(null);
+    setTaskToAssign(null);
+  };
+
+  const handleAddTaskToQueue = (task: QueuedTask) => {
+    setTaskQueue(prev => [...prev, task]);
+    setIsAddModalOpen(false);
+  };
+
+  const openAssignTaskModal = (task: QueuedTask) => {
+    setTaskToAssign(task);
+    setIsAddModalOpen(true);
   };
 
   const cancelMission = (id: string) => {
@@ -240,8 +245,8 @@ const App: React.FC = () => {
         return {
           ...d,
           status: DroneStatus.RETURNING,
-          destination: { x: 500, y: 500 }, // Return to base (Plaza de Armas)
-          mission: 'Returning to Base',
+          destination: { x: 500, y: 500 },
+          mission: 'Retornando a Base',
           waypointIndex: 0
         };
       }
@@ -252,7 +257,6 @@ const App: React.FC = () => {
   const sendToCharge = (id: string) => {
     setDrones(prev => prev.map(d => {
       if (d.id === id) {
-        // Find nearest station
         let nearest = CHARGING_STATIONS[0];
         let minDist = Infinity;
         CHARGING_STATIONS.forEach(st => {
@@ -263,11 +267,17 @@ const App: React.FC = () => {
           }
         });
         
+        setDismissedIncidents(prevSet => {
+          const newSet = new Set(prevSet);
+          newSet.delete(id);
+          return newSet;
+        });
+
         return {
           ...d,
           status: DroneStatus.DEPLOYMENT,
           destination: nearest.pos,
-          mission: `Charging at ${nearest.name}`,
+          mission: `Cargando en ${nearest.name}`,
           waypointIndex: 0
         };
       }
@@ -276,40 +286,60 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className={`flex h-screen w-screen min-h-0 min-w-0 overflow-hidden ${COLORS.bg} selection:bg-[#d4a373] selection:text-black`}>
-      {/* Sidebar Control Panel */}
+    <div className={`flex h-screen w-screen min-h-0 min-w-0 overflow-hidden transition-colors duration-500 ease-in-out selection:bg-[#d4a373] selection:text-black ${isCafe ? 'bg-[#1a0f09]' : 'bg-[#f4efe1]'}`}>
       <ControlPanel 
-        drones={drones} 
+        drones={drones}
+        tasks={taskQueue} 
         onSelect={setSelectedDroneId} 
         selectedId={selectedDroneId} 
         onAddClick={() => setIsAddModalOpen(true)}
+        onAssignTask={openAssignTaskModal}
       />
 
-      {/* Main Map View */}
-      <div className="flex-1 relative border-l border-[#5c4033] min-h-0 min-w-0 h-full">
+      <div className={`flex-1 relative border-l min-h-0 min-w-0 h-full ${isCafe ? 'border-[#5c4033]' : 'border-[#d4c3a3]'}`}>
         <MapView 
           drones={drones} 
+          tasks={taskQueue}
           onDroneClick={setSelectedDroneId} 
           selectedDrone={selectedDrone}
           deliveredDrones={deliveredDrones}
           dronePaths={dronePaths}
         />
         
-        {/* Global Stats Overlay */}
-        <div className="absolute top-4 right-4 flex flex-col gap-2 pointer-events-none">
-          <div className={`${COLORS.panel} p-3 rounded border border-[#5c4033] shadow-xl backdrop-blur-sm bg-opacity-80`}>
-             <div className="text-xs opacity-60 uppercase tracking-widest mb-1">Active Drones</div>
-             <div className="text-2xl font-bold">{drones.filter(d => d.status !== DroneStatus.BASE).length} / {drones.length}</div>
+        <div className="absolute top-4 right-4 flex flex-col items-end gap-3 z-10">
+          <div className="flex items-center gap-4">
+            <div className={`p-1.5 rounded-full border shadow-md backdrop-blur-md ${isCafe ? 'bg-[#2b1a10]/80 border-[#5c4033]' : 'bg-white/80 border-[#d4c3a3]'}`}>
+               <ThemeToggle />
+            </div>
+
+            <div className={`p-3 rounded-xl border shadow-xl backdrop-blur-md bg-opacity-90 ${isCafe ? 'bg-[#2b1a10] border-[#3d2b1f]' : 'bg-white border-[#e5dcc5]'}`}>
+               <div className={`text-[10px] uppercase font-bold tracking-widest mb-1 ${isCafe ? 'text-white/60' : 'text-[#5c4033]/70'}`}>Unidades Activas</div>
+               <div className={`text-2xl font-extrabold leading-none ${isCafe ? 'text-[#fefae0]' : 'text-[#2b1a10]'}`}>
+                 {drones.filter(d => d.status !== DroneStatus.BASE).length} <span className="text-sm font-medium opacity-50">/ {drones.length}</span>
+               </div>
+            </div>
           </div>
+          
+          <button 
+            onClick={() => setIsRegisterModalOpen(true)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-lg border shadow-lg transition-all active:scale-95 ${isCafe ? 'bg-[#d4a373]/10 border-[#d4a373] text-[#d4a373] hover:bg-[#d4a373] hover:text-black' : 'bg-[#bc8a5f]/10 border-[#bc8a5f] text-[#bc8a5f] hover:bg-[#bc8a5f] hover:text-white'}`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+            ALTA DE UNIDAD
+          </button>
         </div>
 
-        {/* Floating Incident Alert */}
         {activeIncident && (
-          <IncidentAlert incident={activeIncident} onClose={() => setActiveIncident(null)} />
+          <IncidentAlert 
+            incident={activeIncident} 
+            onClose={() => {
+              setDismissedIncidents(prev => new Set([...prev, activeIncident.id]));
+              setActiveIncident(null);
+            }} 
+          />
         )}
       </div>
 
-      {/* Detail Panel Popup-style or Slide-in */}
       {selectedDrone && (
         <DetailPanel 
           drone={selectedDrone} 
@@ -323,27 +353,40 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* Delivery Alerts */}
       {deliveryAlerts.map(drone => (
-        <DeliveryAlert 
-          key={drone.id} 
-          drone={drone} 
-          onClose={() => handleRemoveDeliveryAlert(drone.id)}
-        />
+        <DeliveryAlert key={drone.id} drone={drone} onClose={() => handleRemoveDeliveryAlert(drone.id)} />
       ))}
 
-      {/* Modals */}
       {isAddModalOpen && (
         <AddDroneModal 
           onClose={() => {
             setIsAddModalOpen(false);
             setDroneToEdit(null);
+            setTaskToAssign(null);
           }} 
           onAdd={handleAddDrone}
+          onAddTask={handleAddTaskToQueue}
           drone={droneToEdit || undefined}
+          taskToAssign={taskToAssign}
+          availableDrones={assignableDrones}
+        />
+      )}
+
+      {isRegisterModalOpen && (
+        <RegisterDroneModal 
+          onClose={() => setIsRegisterModalOpen(false)}
+          onRegister={handleRegisterNewDrone}
         />
       )}
     </div>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <ThemeProvider>
+      <MainAppContent />
+    </ThemeProvider>
   );
 };
 

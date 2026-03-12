@@ -1,88 +1,94 @@
 import React from 'react';
 
+// Temas para el texto y fondo general (no para la batería en sí, que debe ser semántica)
+const THEMES = {
+  cafe: {
+    textBase: 'text-white',
+    textMuted: 'text-white/60',
+  },
+  beige: {
+    textBase: 'text-[#2b1a10]',
+    textMuted: 'text-[#5c4033]/70',
+  }
+};
+
 interface BatteryIndicatorProps {
   battery: number;
   size?: 'small' | 'medium' | 'large';
+  theme?: 'cafe' | 'beige';
 }
 
-const BatteryIndicator: React.FC<BatteryIndicatorProps> = ({ battery, size = 'medium' }) => {
-  const getBatteryColor = () => {
-    if (battery <= 0) return { color: '#9c4a1a', label: 'Empty' }; // Red
-    if (battery < 20) return { color: '#d4721f', label: 'Critical' }; // Orange
-    if (battery < 50) return { color: '#fefae0', label: 'Low' }; // White
-    return { color: '#7cb342', label: 'Good' }; // Green
+const BatteryIndicator: React.FC<BatteryIndicatorProps> = ({ 
+  battery, 
+  size = 'medium',
+  theme = 'beige' 
+}) => {
+  const colors = THEMES[theme];
+
+  // Paleta de colores semánticos adaptados al estilo terroso/marrón
+  const getBatteryStatus = () => {
+    if (battery <= 5) return { color: '#8b0000', label: 'Agotada', isCritical: true }; // Terracota oscuro
+    if (battery <= 20) return { color: '#c14545', label: 'Crítica', isCritical: true }; // Rojo/Óxido
+    if (battery <= 50) return { color: '#d4a373', label: 'Baja', isCritical: false }; // Mostaza/Beige oscuro
+    return { color: '#6b8e23', label: 'Óptima', isCritical: false }; // Verde oliva
   };
 
   const getBatteryFill = () => {
     if (battery <= 0) return 0;
-    if (battery < 33) return 1;
-    if (battery < 66) return 2;
-    if (battery < 100) return 3;
+    if (battery <= 25) return 1;
+    if (battery <= 50) return 2;
+    if (battery <= 75) return 3;
     return 4;
   };
 
-  const { color, label } = getBatteryColor();
+  const { color, label, isCritical } = getBatteryStatus();
   const fill = getBatteryFill();
-  const sizeClass = {
-    small: 'w-6 h-4',
-    medium: 'w-8 h-5',
-    large: 'w-10 h-6',
-  }[size];
 
-  const segmentSize = {
-    small: 'h-3',
-    medium: 'h-4',
-    large: 'h-5',
+  // Dimensiones dinámicas según el tamaño
+  const dimensions = {
+    small: { body: 'w-7 h-3.5', segment: 'h-2.5', terminal: 'w-0.5 h-1.5', text: 'text-[10px]' },
+    medium: { body: 'w-10 h-5', segment: 'h-3.5', terminal: 'w-1 h-2.5', text: 'text-xs' },
+    large: { body: 'w-14 h-7', segment: 'h-5', terminal: 'w-1.5 h-3.5', text: 'text-sm' },
   }[size];
 
   return (
-    <div className="flex flex-col items-center gap-2">
-      {/* Battery Icon */}
-      <div className={`${sizeClass} rounded border-2 p-0.5 flex gap-0.5 items-center justify-center`} style={{ borderColor: color }}>
-        {/* Segment 1 */}
-        <div
-          className={`flex-1 rounded-sm transition-all duration-300 ${segmentSize}`}
-          style={{
-            backgroundColor: fill >= 1 ? color : 'transparent',
-            border: `1px solid ${color}`,
-            opacity: fill >= 1 ? 1 : 0.2,
-          }}
-        />
-        {/* Segment 2 */}
-        <div
-          className={`flex-1 rounded-sm transition-all duration-300 ${segmentSize}`}
-          style={{
-            backgroundColor: fill >= 2 ? color : 'transparent',
-            border: `1px solid ${color}`,
-            opacity: fill >= 2 ? 1 : 0.2,
-          }}
-        />
-        {/* Segment 3 */}
-        <div
-          className={`flex-1 rounded-sm transition-all duration-300 ${segmentSize}`}
-          style={{
-            backgroundColor: fill >= 3 ? color : 'transparent',
-            border: `1px solid ${color}`,
-            opacity: fill >= 3 ? 1 : 0.2,
-          }}
-        />
-        {/* Segment 4 */}
-        <div
-          className={`flex-1 rounded-sm transition-all duration-300 ${segmentSize}`}
-          style={{
-            backgroundColor: fill >= 4 ? color : 'transparent',
-            border: `1px solid ${color}`,
-            opacity: fill >= 4 ? 1 : 0.2,
-          }}
+    <div className="flex flex-col items-center gap-1.5">
+      {/* Contenedor del Icono de Batería */}
+      <div className={`flex items-center ${isCritical ? 'animate-pulse' : ''}`}>
+        
+        {/* Cuerpo de la batería */}
+        <div 
+          className={`${dimensions.body} rounded-sm border-2 p-0.5 flex gap-0.5 shadow-sm`} 
+          style={{ borderColor: color }}
+        >
+          {/* Generamos los 4 segmentos dinámicamente */}
+          {[1, 2, 3, 4].map((segmentIndex) => (
+            <div
+              key={segmentIndex}
+              className={`flex-1 rounded-[1px] transition-all duration-500 ease-in-out ${dimensions.segment}`}
+              style={{
+                backgroundColor: fill >= segmentIndex ? color : 'transparent',
+                opacity: fill >= segmentIndex ? 1 : 0.15,
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Terminal positivo (el puntito de la derecha) */}
+        <div 
+          className={`${dimensions.terminal} rounded-r-sm`}
+          style={{ backgroundColor: color }}
         />
       </div>
 
-      {/* Battery Percentage and Label */}
-      <div className="text-center">
-        <div className="text-xs font-bold" style={{ color }}>
+      {/* Porcentaje y Etiqueta */}
+      <div className="text-center flex flex-col items-center">
+        <div className={`font-bold ${dimensions.text}`} style={{ color }}>
           {Math.round(battery)}%
         </div>
-        <div className="text-[10px] opacity-60">{label}</div>
+        <div className={`text-[9px] font-medium uppercase tracking-wider mt-0.5 ${colors.textMuted}`}>
+          {label}
+        </div>
       </div>
     </div>
   );
