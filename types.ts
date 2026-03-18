@@ -40,7 +40,8 @@ export interface Drone {
   originalDestination?: Position | null;
   lowBatteryTime?: number;
   chargingTime?: number;
-  
+  incidentCounter?: number;
+  deviationCounter?: number;
 }
 
 export interface MapDistrict {
