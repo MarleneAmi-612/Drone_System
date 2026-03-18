@@ -6,7 +6,8 @@ export enum DroneStatus {
   RETURNING = 'Returning',
   ARRIVED = 'Arrived',
   INCIDENT = 'Incident',
-  CHARGING = 'Charging'
+  CHARGING = 'Charging',
+  LOW_BATTERY = 'LOW_BATTERY'
 }
 
 export interface Position {
@@ -33,6 +34,10 @@ export interface Drone {
   client: string;
   incidentType?: string;
   waypointIndex?: number; // Current waypoint index in calculated path
+  simulationType?: 'NORMAL' | 'LOW_BATTERY' | 'INCIDENT';
+  originalDestination?: Position | null;
+  lowBatteryTime?: number;
+  chargingTime?: number;
 }
 
 export interface MapDistrict {

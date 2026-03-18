@@ -144,7 +144,7 @@ const MapView: React.FC<MapViewProps> = ({
             const html = `
               <div class="relative w-6 h-6 flex items-center justify-center">
                 <div class="absolute inset-0 rounded-full border border-solid animate-ping opacity-50" style="border-color: ${accentColor}; animation-duration: 2s;"></div>
-                <div class="w-2 h-2 rounded-full" style="background-color: ${accentColor};"></div>
+                <div class="w-2 h-2 rounded-full ${drone.status === DroneStatus.INCIDENT ? 'animate-pulse' : ''}"
                 <div class="absolute w-6 h-6 border border-dashed rounded-full" style="border-color: ${accentColor}; animation: spin 5s linear infinite;"></div>
               </div>
             `;
@@ -180,6 +180,14 @@ const MapView: React.FC<MapViewProps> = ({
           const isSelected = selectedDrone?.id === drone.id;
           const isDelivered = deliveredDrones.has(drone.id);
           const isCharging = drone.status === DroneStatus.CHARGING;
+          const isLowBattery = drone.status === DroneStatus.RETURNING && drone.battery < 40;
+          const isIncident = drone.status === DroneStatus.INCIDENT;
+          const droneClass = `
+  drone-marker
+  ${isIncident ? 'opacity-50 grayscale' : ''}
+  ${isLowBattery ? 'animate-ping-orange' : ''}
+`;
+         
           
           let color = accentColor;
           if (drone.status === DroneStatus.BASE) color = isCafe ? '#6b7280' : '#9ca3af';
@@ -192,6 +200,10 @@ const MapView: React.FC<MapViewProps> = ({
           const html = `
             <div class="cursor-pointer transition-all duration-300 ${isSelected || isCharging ? 'scale-125' : 'scale-100'}" style='filter: drop-shadow(0 0 ${isSelected || isCharging ? 12 : 4}px ${color}aa)'>
               <div class="relative w-8 h-8 flex items-center justify-center">
+              ${drone.status === DroneStatus.INCIDENT ? `
+                <div class="absolute inset-0 rounded-full border-2 border-red-500 opacity-70 animate-ping"></div>
+                <div class="absolute inset-0 rounded-full border border-red-500 opacity-40 animate-ping" style="animation-delay:0.5s;"></div>
+              ` : ''}
                 ${isCharging ? `
                   <div class="absolute inset-0 rounded-full border-[3px] border-dashed" style="border-color: ${color}; animation: spin 4s linear infinite;"></div>
                   <div class="absolute inset-0 rounded-full opacity-40 animate-ping" style="background-color: ${color};"></div>

@@ -76,6 +76,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       case DroneStatus.ARRIVED: return { label: 'EN DESTINO', color: 'text-[#6b8e23]', dot: 'bg-[#6b8e23]', border: 'border-[#6b8e23]/30' };
       case DroneStatus.DEPLOYMENT: return { label: 'EN RUTA', color: 'text-[#d4a373]', dot: 'bg-[#d4a373]', border: 'border-[#d4a373]/30' };
       case DroneStatus.CHARGING: return { label: 'RECARGANDO', color: 'text-[#e9c46a]', dot: 'bg-[#e9c46a] animate-pulse', border: 'border-[#e9c46a]/30' };
+      case DroneStatus.LOW_BATTERY:
+  return {
+    label: 'BATERÍA BAJA',
+    color: 'text-[#f59e0b]',
+    dot: 'bg-[#f59e0b] animate-pulse',
+    border: 'border-[#f59e0b]/30'
+  };
       default: return { label: status, color: colors.cardTitle, dot: 'bg-gray-500', border: 'border-transparent' };
     }
   };

@@ -39,7 +39,35 @@ const INITIAL_DRONES: Drone[] = [
     mission: 'Standby',
     client: 'Logistics MX',
     waypointIndex: 0,
-  }
+  },
+  {
+  id: 'DG-LOWBATTERY',
+  model: 'Falcon-X',
+  status: DroneStatus.WORKING,
+  battery: 50,
+  speed: 40,
+  altitude: 110,
+  position: { x: 250, y: 750 },
+  destination: { x: 820, y: 180 },
+  mission: 'Entrega de Paquete',
+  client: 'Logistics MX',
+  waypointIndex: 0,
+
+},
+{
+  id: 'DG-INCIDENT',
+  model: 'Falcon-X',
+  status: DroneStatus.WORKING,
+  battery: 80,
+  speed: 40,
+  altitude: 110,
+  position: { x: 800, y: 200 },
+  destination: { x: 479, y: 380 },
+  mission: 'Paseando niños por los aires',
+  client: 'Logistics MX',
+  waypointIndex: 0,
+  simulationType: "INCIDENT",
+}
 ];
 
 const MainAppContent: React.FC = () => {
@@ -113,31 +141,91 @@ const MainAppContent: React.FC = () => {
     dronePathsRef.current = newPaths;
   }, [drones]);
 
+  //CASOS DE SIMULACION
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      setDrones(prevDrones => prevDrones.map(drone => {
-        
-        if (drone.status === DroneStatus.BASE || drone.status === DroneStatus.CHARGING) {
-          if (drone.status === DroneStatus.CHARGING) {
-             const newBattery = Math.min(100, drone.battery + 1.5);
-             return { 
-               ...drone, 
-               battery: newBattery, 
-               status: newBattery >= 100 ? DroneStatus.BASE : DroneStatus.CHARGING,
-               mission: newBattery >= 100 ? 'Standby' : drone.mission 
-             };
+  const interval = setInterval(() => {
+    setDrones(prevDrones =>
+      prevDrones.map(drone => {
+
+        //CHARGING
+        if (drone.status === DroneStatus.CHARGING) {
+          const time = drone.chargingTime ?? 0;
+
+          if (time < 100) {
+            return {
+              ...drone,
+              chargingTime: time + 1,
+              mission: 'Cargando batería...'
+            };
           }
-          return drone;
+
+          return {
+            ...drone,
+            battery: 100,
+            status: DroneStatus.DEPLOYMENT,
+            destination: drone.originalDestination ?? null,
+            originalDestination: null,
+            chargingTime: 0,
+            speed: 40,
+            mission: 'Retomando misión'
+          };
         }
 
+        // INCIDENT
         if (drone.status === DroneStatus.INCIDENT) {
-           return { ...drone, battery: Math.max(0, drone.battery - 0.05) };
+          return {
+            ...drone,
+            battery: Math.max(0, drone.battery - 0.05)
+          };
         }
 
+        // LOW BATTERY espera y regresa
+        if (drone.status === DroneStatus.LOW_BATTERY) {
+          const time = drone.lowBatteryTime ?? 0;
+
+          //espera 3 segundos
+          if (time < 30) {
+            return {
+              ...drone,
+              lowBatteryTime: time + 1,
+              mission: ' Batería baja - evaluando retorno'
+            };
+          }
+
+          // buscar estación más cercana
+          let nearest = CHARGING_STATIONS[0];
+          let minDist = Infinity;
+
+          CHARGING_STATIONS.forEach(st => {
+            const dist = Math.sqrt(
+              Math.pow(st.pos.x - drone.position.x, 2) +
+              Math.pow(st.pos.y - drone.position.y, 2)
+            );
+            if (dist < minDist) {
+              minDist = dist;
+              nearest = st;
+            }
+          });
+
+          return {
+            ...drone,
+            status: DroneStatus.RETURNING,
+            destination: nearest.pos,
+            waypointIndex: 0,
+            mission: 'Regresando a centro de carga'
+          };
+        }
+
+        // MOVIMIENTO
         if (drone.destination) {
           const path = dronePathsRef.current[drone.id];
           const currentWaypointIndex = drone.waypointIndex ?? 0;
-          let targetWaypoint: Position = path && currentWaypointIndex < path.length ? path[currentWaypointIndex] : drone.destination;
+
+          let targetWaypoint =
+            path && currentWaypointIndex < path.length
+              ? path[currentWaypointIndex]
+              : drone.destination;
 
           const dx = targetWaypoint.x - drone.position.x;
           const dy = targetWaypoint.y - drone.position.y;
@@ -147,12 +235,28 @@ const MainAppContent: React.FC = () => {
             if (path && currentWaypointIndex < path.length - 1) {
               return { ...drone, waypointIndex: currentWaypointIndex + 1 };
             } else {
-              if (drone.mission.includes('Cargando en')) {
-                return { ...drone, status: DroneStatus.CHARGING, destination: null, speed: 0, altitude: 0, position: drone.destination, waypointIndex: 0 };
-              } else if (drone.status === DroneStatus.RETURNING) {
-                return { ...drone, status: DroneStatus.BASE, destination: null, speed: 0, altitude: 0, position: drone.destination, waypointIndex: 0, mission: 'Standby' };
+              // LLEGADA A ESTACIÓN DE CARGA
+              if (drone.status === DroneStatus.RETURNING) {
+                return {
+                  ...drone,
+                  status: DroneStatus.CHARGING,
+                  destination: null,
+                  speed: 0,
+                  altitude: 0,
+                  waypointIndex: 0,
+                  chargingTime: 0
+                };
               }
-              return { ...drone, status: DroneStatus.ARRIVED, destination: null, speed: 0, altitude: 0, position: drone.destination, waypointIndex: 0 };
+
+              // ENTREGA NORMAL
+              return {
+                ...drone,
+                status: DroneStatus.ARRIVED,
+                destination: null,
+                speed: 0,
+                altitude: 0,
+                waypointIndex: 0
+              };
             }
           }
 
@@ -160,33 +264,64 @@ const MainAppContent: React.FC = () => {
           const nx = drone.position.x + (dx / dist) * moveSpeed;
           const ny = drone.position.y + (dy / dist) * moveSpeed;
           const newBattery = Math.max(0, drone.battery - 0.05);
-          
-          let nextStatus: DroneStatus = drone.status;
-          const isEmergencyReturn = drone.mission.includes('Cargando en') || drone.status === DroneStatus.RETURNING;
-          
-          if (newBattery <= 0) {
-             nextStatus = DroneStatus.INCIDENT;
-          } else if (newBattery <= 40 && !isEmergencyReturn) {
-             nextStatus = DroneStatus.INCIDENT;
+
+          // SIMULACIÓN INCIDENTE
+          if (
+            drone.simulationType === 'INCIDENT' &&
+            drone.battery < 35 &&
+            drone.status !== DroneStatus.INCIDENT
+          ) {
+            return {
+              ...drone,
+              status: DroneStatus.INCIDENT,
+              destination: null,
+              speed: 0,
+              incidentType: 'Pérdida de Comunicación'
+            };
+          }
+
+          // DETECCIÓN BATERÍA BAJA 
+          if (
+            newBattery < 40 &&
+            drone.status !== DroneStatus.RETURNING &&
+            drone.status !== DroneStatus.CHARGING &&
+            drone.status !== DroneStatus.LOW_BATTERY
+          ) {
+            return {
+              ...drone,
+              battery: newBattery,
+              status: DroneStatus.LOW_BATTERY,
+              speed: 0,
+              destination: null,
+              originalDestination: drone.destination,
+              lowBatteryTime: 0,
+              mission: 'Batería baja detectada',
+              incidentType: 'Batería crítica'
+            };
           }
 
           return {
             ...drone,
             position: { x: nx, y: ny },
-            battery: newBattery,
-            status: nextStatus,
-            incidentType: newBattery <= 40 && !isEmergencyReturn ? 'Bateria al 40% - Requiere Recarga' : drone.incidentType
+            battery: newBattery
           };
         }
-        return drone;
-      }));
-    }, 100);
 
-    return () => clearInterval(interval);
-  }, []);
+        return drone;
+      })
+    );
+  }, 100);
+
+  return () => clearInterval(interval);
+}, []);
+
+//........................
 
   useEffect(() => {
-    const incident = drones.find(d => d.status === DroneStatus.INCIDENT && !dismissedIncidents.has(d.id));
+   const incident = drones.find(d => 
+  (d.status === DroneStatus.INCIDENT || d.status === DroneStatus.LOW_BATTERY) &&
+  !dismissedIncidents.has(d.id)
+);
     if (incident && (!activeIncident || activeIncident.id !== incident.id)) {
       setActiveIncident(incident);
     } else if (!incident) {
@@ -255,6 +390,7 @@ const MainAppContent: React.FC = () => {
   };
 
   const sendToCharge = (id: string) => {
+    
     setDrones(prev => prev.map(d => {
       if (d.id === id) {
         let nearest = CHARGING_STATIONS[0];
@@ -278,7 +414,8 @@ const MainAppContent: React.FC = () => {
           status: DroneStatus.DEPLOYMENT,
           destination: nearest.pos,
           mission: `Cargando en ${nearest.name}`,
-          waypointIndex: 0
+          waypointIndex: 0,
+          originalDestination: d.originalDestination ?? d.destination,
         };
       }
       return d;
