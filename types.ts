@@ -7,7 +7,9 @@ export enum DroneStatus {
   ARRIVED = 'Arrived',
   INCIDENT = 'Incident',
   CHARGING = 'Charging',
-  LOW_BATTERY = 'LOW_BATTERY'
+  LOW_BATTERY = 'LOW_BATTERY',
+  LOST_COMMUNICATION = 'LOST_COMMUNICATION', 
+  OFF_COURSE = 'OFF_COURSE' 
 }
 
 export interface Position {
@@ -38,6 +40,7 @@ export interface Drone {
   originalDestination?: Position | null;
   lowBatteryTime?: number;
   chargingTime?: number;
+  
 }
 
 export interface MapDistrict {

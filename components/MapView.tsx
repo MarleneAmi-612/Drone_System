@@ -176,60 +176,107 @@ const MapView: React.FC<MapViewProps> = ({
         })}
 
         {/* 5. MARCADORES DE DRONES */}
-        {drones.map((drone) => {
-          const isSelected = selectedDrone?.id === drone.id;
-          const isDelivered = deliveredDrones.has(drone.id);
-          const isCharging = drone.status === DroneStatus.CHARGING;
-          const isLowBattery = drone.status === DroneStatus.RETURNING && drone.battery < 40;
-          const isIncident = drone.status === DroneStatus.INCIDENT;
-          const droneClass = `
-  drone-marker
-  ${isIncident ? 'opacity-50 grayscale' : ''}
-  ${isLowBattery ? 'animate-ping-orange' : ''}
-`;
-         
-          
-          let color = accentColor;
-          if (drone.status === DroneStatus.BASE) color = isCafe ? '#6b7280' : '#9ca3af';
-          if (isDelivered) color = '#7cb342';
-          if (drone.status === DroneStatus.INCIDENT) color = isCafe ? '#c14545' : '#ff5722';
-          if (isCharging) color = '#e9c46a';
+{drones.map((drone) => {
+  const isSelected = selectedDrone?.id === drone.id;
+  const isDelivered = deliveredDrones.has(drone.id);
+  const isCharging = drone.status === DroneStatus.CHARGING;
+  const isLowBattery = drone.status === DroneStatus.RETURNING && drone.battery < 40;
+  const isIncident = drone.status === DroneStatus.INCIDENT;
+  const isLostComms = drone.status === DroneStatus.LOST_COMMUNICATION;
+  const isOffCourse = drone.status === DroneStatus.OFF_COURSE;
+  
+  let color = accentColor;
+  let extraEffects = '';
 
-          const droneLatLng = positionToLatLng(drone.position);
+  if (drone.status === DroneStatus.BASE) color = isCafe ? '#6b7280' : '#9ca3af';
+  if (isDelivered) color = '#7cb342';
+  if (isLostComms) {
+    color = isCafe ? '#c14545' : '#ff5722';
+    extraEffects = 'animate-pulse opacity-70';
+  }
+  if (isOffCourse) {
+    color = '#f97316';
+    extraEffects = 'animate-bounce';
+  }
+  if (isIncident) color = isCafe ? '#c14545' : '#ff5722';
+  if (isCharging) color = '#e9c46a';
 
-          const html = `
-            <div class="cursor-pointer transition-all duration-300 ${isSelected || isCharging ? 'scale-125' : 'scale-100'}" style='filter: drop-shadow(0 0 ${isSelected || isCharging ? 12 : 4}px ${color}aa)'>
-              <div class="relative w-8 h-8 flex items-center justify-center">
-              ${drone.status === DroneStatus.INCIDENT ? `
-                <div class="absolute inset-0 rounded-full border-2 border-red-500 opacity-70 animate-ping"></div>
-                <div class="absolute inset-0 rounded-full border border-red-500 opacity-40 animate-ping" style="animation-delay:0.5s;"></div>
-              ` : ''}
-                ${isCharging ? `
-                  <div class="absolute inset-0 rounded-full border-[3px] border-dashed" style="border-color: ${color}; animation: spin 4s linear infinite;"></div>
-                  <div class="absolute inset-0 rounded-full opacity-40 animate-ping" style="background-color: ${color};"></div>
-                  <svg class="absolute w-4 h-4 z-10 animate-pulse" style="color: ${color};" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.381z" clip-rule="evenodd"></path></svg>
-                ` : ''}
-                ${isSelected && !isDelivered && !isCharging ? `<div class="absolute inset-0 rounded-full border-2" style="border-color: ${color}; animation: pulse 1.5s ease-out infinite;"></div>` : ''}
-                <div class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors" style="background-color: ${isCafe ? '#1a0f09' : '#ffffff'}; border-color: ${color}; ${isCharging ? 'opacity: 0.1;' : ''}">
-                  ${!isCharging ? `<div class="w-2 h-2 rounded-full ${drone.status !== DroneStatus.BASE ? 'animate-spin' : ''}" style="background-color: ${color}; animation-duration: 0.5s;"></div>` : ''}
-                </div>
-              </div>
-            </div>
-          `;
+  const droneLatLng = positionToLatLng(drone.position);
 
-          const icon = L.divIcon({ html, className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
+  const html = `
+    <div class="cursor-pointer transition-all duration-300 ${isSelected || isCharging ? 'scale-125' : 'scale-100'} ${extraEffects}" style='filter: drop-shadow(0 0 ${isSelected || isCharging ? 12 : 4}px ${color}aa)'>
+      <div class="relative w-8 h-8 flex items-center justify-center">
+        ${isLostComms ? `
+          <div class="absolute inset-0 rounded-full border-2 border-red-500 opacity-70 animate-ping"></div>
+          <div class="absolute inset-0 rounded-full border border-purple-500 opacity-40 animate-pulse" style="animation-delay:0.3s;"></div>
+          <div class="absolute inset-0 flex items-center justify-center">
+            <svg class="w-4 h-4 text-red-500 animate-spin" style="animation-duration: 3s;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" />
+            </svg>
+          </div>
+        ` : ''}
+        
+        ${isOffCourse ? `
+          <div class="absolute inset-0 rounded-full border-2 border-orange-500 opacity-70 animate-ping"></div>
+          <div class="absolute inset-0 flex items-center justify-center">
+            <svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+          </div>
+        ` : ''}
+        
+        ${isIncident ? `
+          <div class="absolute inset-0 rounded-full border-2 border-red-500 opacity-70 animate-ping"></div>
+          <div class="absolute inset-0 rounded-full border border-red-500 opacity-40 animate-ping" style="animation-delay:0.5s;"></div>
+        ` : ''}
+        
+        ${isCharging ? `
+          <div class="absolute inset-0 rounded-full border-[3px] border-dashed" style="border-color: ${color}; animation: spin 4s linear infinite;"></div>
+          <div class="absolute inset-0 rounded-full opacity-40 animate-ping" style="background-color: ${color};"></div>
+          <svg class="absolute w-4 h-4 z-10 animate-pulse" style="color: ${color};" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.381z" clip-rule="evenodd" />
+          </svg>
+        ` : ''}
+        
+        ${isSelected && !isDelivered && !isCharging ? `
+          <div class="absolute inset-0 rounded-full border-2" style="border-color: ${color}; animation: pulse 1.5s ease-out infinite;"></div>
+        ` : ''}
+        
+        <div class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors" 
+             style="background-color: ${isCafe ? '#1a0f09' : '#ffffff'}; border-color: ${color}; ${isCharging ? 'opacity: 0.1;' : ''}">
+          ${!isCharging ? `
+            <div class="w-2 h-2 rounded-full ${drone.status !== DroneStatus.BASE ? 'animate-spin' : ''}" 
+                 style="background-color: ${color}; animation-duration: 0.5s;"></div>
+          ` : ''}
+        </div>
+      </div>
+    </div>
+  `;
 
-          return (
-            <Marker key={drone.id} position={[droneLatLng.latitude, droneLatLng.longitude]} icon={icon} eventHandlers={{ click: () => onDroneClick(drone.id) }}> 
-              <Tooltip direction="top" offset={[0, -10]} interactive={false}>
-                 <div className={`text-xs py-2 px-3 rounded-xl border shadow-xl backdrop-blur-md ${isCafe ? 'bg-[#1a0f08]/90 text-[#d4a373] border-[#5c4033]' : 'bg-white/95 text-[#bc8a5f] border-[#d4c3a3]'}`}>
-                   <div className={`font-bold text-center mb-1 ${isCafe ? 'text-[#fefae0]' : 'text-[#2b1a10]'}`}>{drone.id}</div>
-                   <div className="flex justify-center"><BatteryIndicator battery={drone.battery} size="small" theme={theme} /></div>
-                 </div>
-              </Tooltip>
-            </Marker>
-          );
-        })}
+  const icon = L.divIcon({ html, className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
+
+  return (
+    <Marker 
+      key={drone.id} 
+      position={[droneLatLng.latitude, droneLatLng.longitude]} 
+      icon={icon} 
+      eventHandlers={{ click: () => onDroneClick(drone.id) }}
+    > 
+      <Tooltip direction="top" offset={[0, -10]} interactive={false}>
+        <div className={`text-xs py-2 px-3 rounded-xl border shadow-xl backdrop-blur-md ${
+          isCafe ? 'bg-[#1a0f08]/90 text-[#d4a373] border-[#5c4033]' : 'bg-white/95 text-[#bc8a5f] border-[#d4c3a3]'
+        }`}>
+          <div className={`font-bold text-center mb-1 ${
+            isCafe ? 'text-[#fefae0]' : 'text-[#2b1a10]'
+          }`}>{drone.id}</div>
+          <div className="flex justify-center">
+            <BatteryIndicator battery={drone.battery} size="small" theme={theme} />
+          </div>
+        </div>
+      </Tooltip>
+    </Marker>
+  );
+})}
 
         {/* Panel de Información Flotante */}
         <div className="leaflet-bottom leaflet-left" style={{ position: 'absolute', left: 16, bottom: 24, zIndex: 1000, pointerEvents: "none" }}>

@@ -65,7 +65,7 @@ const INITIAL_DRONES: Drone[] = [
   destination: { x: 479, y: 380 },
   mission: 'Paseando niños por los aires',
   client: 'Logistics MX',
-  waypointIndex: 0,
+  waypointIndex: 1,
   simulationType: "INCIDENT",
 }
 ];
@@ -147,11 +147,11 @@ const MainAppContent: React.FC = () => {
   const interval = setInterval(() => {
     setDrones(prevDrones =>
       prevDrones.map(drone => {
-
-        //CHARGING
+        // === MANEJO DE ESTADOS ESPECIALES
+        
+        // CHARGING
         if (drone.status === DroneStatus.CHARGING) {
           const time = drone.chargingTime ?? 0;
-
           if (time < 100) {
             return {
               ...drone,
@@ -159,7 +159,6 @@ const MainAppContent: React.FC = () => {
               mission: 'Cargando batería...'
             };
           }
-
           return {
             ...drone,
             battery: 100,
@@ -172,19 +171,74 @@ const MainAppContent: React.FC = () => {
           };
         }
 
-        // INCIDENT
-        if (drone.status === DroneStatus.INCIDENT) {
+        // LOST COMMUNICATION 
+        if (drone.status === DroneStatus.LOST_COMMUNICATION) {
           return {
             ...drone,
-            battery: Math.max(0, drone.battery - 0.05)
+            battery: Math.max(0, drone.battery - 0.08), // Descarga más rápida
+            mission: 'SIN COMUNICACIÓN - Búsqueda activa',
+            altitude: Math.max(0, drone.altitude - 0.5) // Desciende lentamente
           };
         }
 
-        // LOW BATTERY espera y regresa
+        // OFF COURSE
+        if (drone.status === DroneStatus.OFF_COURSE) {
+          
+          const randomAngle = Math.random() * Math.PI * 2;
+          const erranticSpeed = 3;
+          const nx = drone.position.x + Math.cos(randomAngle) * erranticSpeed;
+          const ny = drone.position.y + Math.sin(randomAngle) * erranticSpeed;
+          
+          return {
+            ...drone,
+            position: { x: nx, y: ny },
+            battery: Math.max(0, drone.battery - 0.07),
+            mission: ' DESVIADO - Fuera de ruta'
+          };
+        }
+
+        // INCIDENT 
+        
+if (
+  drone.id === 'DG-INCIDENT' &&
+  drone.simulationType === 'INCIDENT'
+) {
+  
+  if (drone.status === DroneStatus.INCIDENT) {
+    return {
+      ...drone,
+      battery: Math.max(0, drone.battery - 0.1) // Se descarga más rápido
+    };
+  }
+  
+  
+  if (drone.status === DroneStatus.WORKING) {
+    // Inicializar contador si no existe
+    const currentCounter = drone.incidentCounter || 0;
+    const newCounter = currentCounter + 1;
+    
+    
+    if (newCounter > 20) {
+      console.log('¡DG-INCIDENT SE ACCIDENTA!');
+      return {
+        ...drone,
+        status: DroneStatus.INCIDENT,
+        destination: null,
+        speed: 0,
+        mission: 'ACCIDENTE - Dron caído',
+        incidentType: 'Pérdida de comunicación',
+        incidentCounter: undefined // Limpiar contador
+      };
+    }
+    
+   
+    drone.incidentCounter = newCounter;
+  }
+}
+
+        // LOW BATTERY 
         if (drone.status === DroneStatus.LOW_BATTERY) {
           const time = drone.lowBatteryTime ?? 0;
-
-          //espera 3 segundos
           if (time < 30) {
             return {
               ...drone,
@@ -192,11 +246,8 @@ const MainAppContent: React.FC = () => {
               mission: ' Batería baja - evaluando retorno'
             };
           }
-
-          // buscar estación más cercana
           let nearest = CHARGING_STATIONS[0];
           let minDist = Infinity;
-
           CHARGING_STATIONS.forEach(st => {
             const dist = Math.sqrt(
               Math.pow(st.pos.x - drone.position.x, 2) +
@@ -207,7 +258,6 @@ const MainAppContent: React.FC = () => {
               nearest = st;
             }
           });
-
           return {
             ...drone,
             status: DroneStatus.RETURNING,
@@ -217,7 +267,7 @@ const MainAppContent: React.FC = () => {
           };
         }
 
-        // MOVIMIENTO
+        //MOVIMIENTO NORMAL
         if (drone.destination) {
           const path = dronePathsRef.current[drone.id];
           const currentWaypointIndex = drone.waypointIndex ?? 0;
@@ -235,7 +285,7 @@ const MainAppContent: React.FC = () => {
             if (path && currentWaypointIndex < path.length - 1) {
               return { ...drone, waypointIndex: currentWaypointIndex + 1 };
             } else {
-              // LLEGADA A ESTACIÓN DE CARGA
+              // LLEGADA A ESTACIÓN DE CARGAAAAAAAA
               if (drone.status === DroneStatus.RETURNING) {
                 return {
                   ...drone,
@@ -265,23 +315,37 @@ const MainAppContent: React.FC = () => {
           const ny = drone.position.y + (dy / dist) * moveSpeed;
           const newBattery = Math.max(0, drone.battery - 0.05);
 
-          // SIMULACIÓN INCIDENTE
-          if (
-            drone.simulationType === 'INCIDENT' &&
-            drone.battery < 35 &&
-            drone.status !== DroneStatus.INCIDENT
-          ) {
-            return {
-              ...drone,
-              status: DroneStatus.INCIDENT,
-              destination: null,
-              speed: 0,
-              incidentType: 'Pérdida de Comunicación'
-            };
+          // === SIMULACIONES ESPECIALES BASADAS EN simulationType
+          
+          
+
+          // DG-002: Se desvía de ruta 
+          // (VERSIÓN CON CONTADOR)
+          if (drone.id === 'DG-002' && drone.status === DroneStatus.DEPLOYMENT) {
+            
+            
+            const deviationCounter = (drone.deviationCounter || 0) + 1;
+            
+            
+            if (deviationCounter > 30) {
+              console.log(' DG-002 SE DESVÍA DE RUTA (GARANTIZADO)');
+              return {
+                ...drone,
+                status: DroneStatus.OFF_COURSE,
+                destination: null,
+                mission: 'DESVIADO DE RUTA - Requiere localización',
+                incidentType: 'Desviación de ruta',
+                deviationCounter: undefined 
+              };
+            }
+            
+            // Guardar el contador actualizado
+            drone.deviationCounter = deviationCounter;
           }
 
-          // DETECCIÓN BATERÍA BAJA 
+          // DETECCIÓN BATERÍA BAJA para DG-LOWBATTERY
           if (
+            drone.id === 'DG-LOWBATTERY' &&
             newBattery < 40 &&
             drone.status !== DroneStatus.RETURNING &&
             drone.status !== DroneStatus.CHARGING &&
@@ -300,6 +364,11 @@ const MainAppContent: React.FC = () => {
             };
           }
 
+          // DG-001: Entrega exitosa (continúa normal)
+          if (drone.id === 'DG-001' && dist < 10 && !drone.destination) {
+            // Ya se maneja en la llegada
+          }
+
           return {
             ...drone,
             position: { x: nx, y: ny },
@@ -314,12 +383,12 @@ const MainAppContent: React.FC = () => {
 
   return () => clearInterval(interval);
 }, []);
-
 //........................
 
   useEffect(() => {
    const incident = drones.find(d => 
-  (d.status === DroneStatus.INCIDENT || d.status === DroneStatus.LOW_BATTERY) &&
+  (d.status === DroneStatus.INCIDENT || d.status === DroneStatus.LOW_BATTERY ||
+     d.status === DroneStatus.OFF_COURSE) &&
   !dismissedIncidents.has(d.id)
 );
     if (incident && (!activeIncident || activeIncident.id !== incident.id)) {
