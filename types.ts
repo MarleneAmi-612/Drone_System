@@ -8,12 +8,12 @@ export enum DroneStatus {
   INCIDENT = 'Incident',
   CHARGING = 'Charging',
   LOW_BATTERY = 'LOW_BATTERY',
-  LOST_COMMUNICATION = 'LOST_COMMUNICATION', 
-  OFF_COURSE = 'OFF_COURSE' 
+  LOST_COMMUNICATION = 'LOST_COMMUNICATION',
+  OFF_COURSE = 'OFF_COURSE',
 }
 
 export interface Position {
-  x: number; // 0-1000 scale for simulated map
+  x: number;
   y: number;
 }
 
@@ -27,21 +27,18 @@ export interface Drone {
   id: string;
   model: string;
   status: DroneStatus;
-  battery: number; // 0-100
-  speed: number; // km/h
-  altitude: number; // meters
+  battery: number;
+  speed: number;
+  altitude: number;
   position: Position;
   destination: Position | null;
   mission: string;
   client: string;
   incidentType?: string;
-  waypointIndex?: number; // Current waypoint index in calculated path
-  simulationType?: 'NORMAL' | 'LOW_BATTERY' | 'INCIDENT';
+  waypointIndex?: number;
   originalDestination?: Position | null;
   lowBatteryTime?: number;
   chargingTime?: number;
-  incidentCounter?: number;
-  deviationCounter?: number;
 }
 
 export interface MapDistrict {
